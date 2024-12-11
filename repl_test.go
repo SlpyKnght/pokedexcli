@@ -1,6 +1,6 @@
 package main
 
-import(
+import (
 	"testing"
 )
 
@@ -38,3 +38,4 @@ func TestCleanInput(t *testing.T) {
 		}
 	}
 }
+
