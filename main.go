@@ -23,6 +23,7 @@ type config struct {
 	next string
 	previous string
 	cache *pokecache.Cache
+	pokedex map[string]Pokemon
 	input []string
 }
 
@@ -71,6 +72,30 @@ type Pokemon struct {
 	Id	int `json:"id,omitempty"`
 	Name string `json:"name"`
 	URL  string `json:"url"`
+	BaseExperience         int           `json:"base_experience,omitempty"`
+	Height                 int           `json:"height,omitempty"`
+	IsDefault              bool          `json:"is_default,omitempty"`
+	Order                  int           `json:"order,omitempty"`
+	Weight                 int           `json:"weight,omitempty"`
+	Stats                  []Stats       `json:"stats,omitempty"`
+	Types                  []Types       `json:"types,omitempty"`
+}
+type Stat struct {
+	Name string `json:"name,omitempty"`
+	URL  string `json:"url,omitempty"`
+}
+type Stats struct {
+	BaseStat int  `json:"base_stat,omitempty"`
+	Effort   int  `json:"effort,omitempty"`
+	Stat     Stat `json:"stat,omitempty"`
+}
+type Type struct {
+	Name string `json:"name,omitempty"`
+	URL  string `json:"url,omitempty"`
+}
+type Types struct {
+	Slot int  `json:"slot,omitempty"`
+	Type Type `json:"type,omitempty"`
 }
 type Method struct {
 	Name string `json:"name"`
@@ -97,7 +122,10 @@ type PokemonEncounters struct {
 func main(){
 	commands := getCommandRegistry()
 	scanner := bufio.NewScanner(os.Stdin)
-	config := config{cache: pokecache.NewCache(time.Second * 5)}
+	config := config{
+		cache: pokecache.NewCache(time.Second * 5),
+		pokedex: make(map[string]Pokemon),
+	}
 	for {
 		fmt.Print("Pokedex > ")
 		scanner.Scan()
@@ -108,7 +136,10 @@ func main(){
 		}
 		config.input = input
 		if cmd, ok := commands[input[0]];ok{
-			cmd.callback(&config)
+			if err := cmd.callback(&config); err != nil{
+				fmt.Printf("%v\n", err)
+			}
+			
 		}
 	}
 }
@@ -129,7 +160,6 @@ func cleanInput(text string) []string{
 
 func commandCatch(conf *config)error{
 	if len(conf.input) < 2{
-		fmt.Println("missing pokemon parameter")
 		return fmt.Errorf("missing pokemon parameter")
 	}
 	fmt.Println("Throwing a Pokeball at " + conf.input[1] + "...")
@@ -138,11 +168,31 @@ func commandCatch(conf *config)error{
 
 func commandExplore(conf *config)error{
 	if len(conf.input) < 2{
-		fmt.Println("missing location parameter")
 		return fmt.Errorf("missing location parameter")
 	}
 	location := conf.input[1]
 	return fetchPokemonIn(location, conf)
+}
+
+func commandInspect(conf *config)error{
+	if len(conf.input) < 2{
+		return fmt.Errorf("missing location parameter")
+	}
+	pokemon, ok:= conf.pokedex[conf.input[1]];
+	if !ok{
+		return fmt.Errorf("%v not caught", conf.input[1])
+	}
+	fmt.Printf("Name: %v\n", pokemon.Name)
+	fmt.Printf("Height: %v\n", pokemon.Height)
+	fmt.Printf("Stats:\n")
+	for _, stat := range pokemon.Stats{
+		fmt.Printf("\t-%v: %v\n", stat.Stat.Name, stat.BaseStat)
+	}
+	fmt.Printf("Types:\n")
+	for _, t := range pokemon.Types{
+		fmt.Printf("\t-%v\n", t.Type.Name)
+	}
+	return nil;
 }
 
 func commandExit(conf *config) error{
@@ -173,6 +223,17 @@ func commandMap(conf *config) error{
 		url = conf.next
 	}
 	return fetchMap(url, conf)
+}
+
+func commandPokedex(conf *config)error{
+	if len(conf.pokedex) == 0 {
+		return fmt.Errorf("Go out there and catch some!")
+	}
+	fmt.Println("Your Pokedex:")
+	for name := range conf.pokedex{
+		fmt.Printf("\t-%s \n", name)
+	}
+	return nil
 }
 
 func fetchMap(url string, conf *config)error{
@@ -239,9 +300,13 @@ func catchPokemon(pokemon string, conf *config)error{
 	}
 	apiResp := Pokemon{}
 	json.Unmarshal(rawResponse, &apiResp)
+	if apiResp.Name == ""{
+		return fmt.Errorf("You can only catch pokemon...")
+	}
 	if rand.Int() % 2 == 0{
 		fmt.Println(apiResp.Name + " escaped!")
 	}else{
+		conf.pokedex[apiResp.Name] = apiResp
 		fmt.Println(apiResp.Name + " was caught!")
 	}
 	return nil;
@@ -253,6 +318,16 @@ func getCommandRegistry()map[string]cliCommand{
 			name: "help",
 			description: "Displays a help message",
 			callback: commandHelp,
+		},
+		"pokedex":{
+			name: "pokedex",
+			description: "list all pokemon you have caught so far",
+			callback: commandPokedex,
+		},
+		"inspect":{
+			name: "inspect",
+			description: "inspect a pokemon you have caught",
+			callback: commandInspect,
 		},
 		"catch":{
 			name: "catch",

@@ -49,7 +49,7 @@ func (cache *Cache) reapLoop(){
 	for range ticker{
 		cache.sc.Lock()
 		for k,v := range cache.items{
-			if v.createdAt.Add(cache.interval).Compare(time.Now()) <= 0{
+			if v.createdAt.Add(time.Second * 30).Compare(time.Now()) <= 0{
 				delete(cache.items, k)
 			}
 		}
