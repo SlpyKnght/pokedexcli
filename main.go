@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"math/rand"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -22,9 +23,10 @@ type config struct {
 	next string
 	previous string
 	cache *pokecache.Cache
+	input []string
 }
 
-type ApiResponse[T any] struct{
+type ApiBatchResponse[T any] struct{
 	Count int `json:"count"`
 	Next string `json:"next"`
 	Previous string `json:"previous"`
@@ -34,6 +36,62 @@ type ApiResponse[T any] struct{
 type Location struct{
 	Name string `json:"name"`
 	Url string `json:"url"`
+}
+
+type ApiResponse struct {
+	ID                   int                    `json:"id"`
+	Name                 string                 `json:"name"`
+	GameIndex            int                    `json:"game_index"`
+	EncounterMethodRates []EncounterMethodRates `json:"encounter_method_rates"`
+	Location             Location               `json:"location"`
+	Names                []Names                `json:"names"`
+	PokemonEncounters    []PokemonEncounters    `json:"pokemon_encounters"`
+}
+type EncounterMethod struct {
+	Name string `json:"name"`
+	URL  string `json:"url"`
+}
+type Version struct {
+	Name string `json:"name"`
+	URL  string `json:"url"`
+}
+type EncounterMethodRates struct {
+	EncounterMethod EncounterMethod  `json:"encounter_method"`
+	VersionDetails  []VersionDetails `json:"version_details"`
+}
+type Language struct {
+	Name string `json:"name"`
+	URL  string `json:"url"`
+}
+type Names struct {
+	Name     string   `json:"name"`
+	Language Language `json:"language"`
+}
+type Pokemon struct {
+	Id	int `json:"id,omitempty"`
+	Name string `json:"name"`
+	URL  string `json:"url"`
+}
+type Method struct {
+	Name string `json:"name"`
+	URL  string `json:"url"`
+}
+type EncounterDetails struct {
+	MinLevel        int    `json:"min_level"`
+	MaxLevel        int    `json:"max_level"`
+	ConditionValues []any  `json:"condition_values"`
+	Chance          int    `json:"chance"`
+	Method          Method `json:"method"`
+}
+type VersionDetails struct {
+	Rate    int     `json:"rate,omitempty"`
+	Version          Version            `json:"version,omitempty"`
+	MaxChance        int                `json:"max_chance,omitempty"`
+	EncounterDetails []EncounterDetails `json:"encounter_details,omitempty"`
+}
+type PokemonEncounters struct {
+	Pokemon        Pokemon          `json:"pokemon"`
+	VersionDetails []VersionDetails `json:"version_details"`
 }
 
 func main(){
@@ -48,6 +106,7 @@ func main(){
 		if len(input) == 0 {
 			continue
 		}
+		config.input = input
 		if cmd, ok := commands[input[0]];ok{
 			cmd.callback(&config)
 		}
@@ -66,6 +125,24 @@ func cleanInput(text string) []string{
 	}
 
 	return result
+}
+
+func commandCatch(conf *config)error{
+	if len(conf.input) < 2{
+		fmt.Println("missing pokemon parameter")
+		return fmt.Errorf("missing pokemon parameter")
+	}
+	fmt.Println("Throwing a Pokeball at " + conf.input[1] + "...")
+	return catchPokemon(conf.input[1], conf)
+}
+
+func commandExplore(conf *config)error{
+	if len(conf.input) < 2{
+		fmt.Println("missing location parameter")
+		return fmt.Errorf("missing location parameter")
+	}
+	location := conf.input[1]
+	return fetchPokemonIn(location, conf)
 }
 
 func commandExit(conf *config) error{
@@ -112,7 +189,7 @@ func fetchMap(url string, conf *config)error{
 		rawResponse,_ = io.ReadAll(res.Body)
 		conf.cache.Add(url, rawResponse)
 	}
-	apiResp := ApiResponse[[]Location]{}
+	apiResp := ApiBatchResponse[[]Location]{}
 	json.Unmarshal(rawResponse, &apiResp)
 	conf.next = apiResp.Next
 	conf.previous = apiResp.Previous
@@ -122,12 +199,70 @@ func fetchMap(url string, conf *config)error{
 	return nil
 }
 
+func fetchPokemonIn(location string, conf *config)error{
+	var rawResponse []byte
+	url := "https://pokeapi.co/api/v2/location-area/" + location
+	if val, ok:= conf.cache.Get(url); ok{
+		fmt.Println("cached result:")
+		rawResponse = val
+	}else{
+		res, err := http.Get(url)
+		if err != nil{
+			return err
+		}
+		defer res.Body.Close()
+		rawResponse,_ = io.ReadAll(res.Body)
+		conf.cache.Add(url, rawResponse)
+	}
+	apiResp := ApiResponse{}
+	json.Unmarshal(rawResponse, &apiResp)
+	for _, encounter := range apiResp.PokemonEncounters{
+		fmt.Println(encounter.Pokemon.Name)
+	}
+	return nil
+}
+
+func catchPokemon(pokemon string, conf *config)error{
+	var rawResponse []byte
+	url := "https://pokeapi.co/api/v2/pokemon/" + pokemon
+	if val, ok:= conf.cache.Get(url); ok{
+		fmt.Println("cached result:")
+		rawResponse = val
+	}else{
+		res, err := http.Get(url)
+		if err != nil{
+			return err
+		}
+		defer res.Body.Close()
+		rawResponse,_ = io.ReadAll(res.Body)
+		conf.cache.Add(url, rawResponse)
+	}
+	apiResp := Pokemon{}
+	json.Unmarshal(rawResponse, &apiResp)
+	if rand.Int() % 2 == 0{
+		fmt.Println(apiResp.Name + " escaped!")
+	}else{
+		fmt.Println(apiResp.Name + " was caught!")
+	}
+	return nil;
+}
+
 func getCommandRegistry()map[string]cliCommand{
 	return map[string]cliCommand{
 		"help":{
 			name: "help",
 			description: "Displays a help message",
 			callback: commandHelp,
+		},
+		"catch":{
+			name: "catch",
+			description: "gotta catch them all",
+			callback: commandCatch,
+		},
+		"explore":{
+			name: "explore",
+			description: "Find all Pokemon in this location",
+			callback: commandExplore,
 		},
 		"map":{
 			name: "map",
